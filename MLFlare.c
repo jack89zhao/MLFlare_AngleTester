@@ -229,11 +229,9 @@ char* CreateLogPath(char *path)  {
     char *home = getenv("HOME");
     
     flareLogPath = (char*)malloc(strlen(home) + strlen(path) + 1);
-    strcat(flareLogPath, home);
-    strcat(flareLogPath, path);
+    sprintf(flareLogPath, "%s%s", home, path);
     
     int error = access(flareLogPath, F_OK);
-    
     if (error != 0) {
     // create log path, create intermediate directories as required.
         strcpy(cmd, "mkdir -p ");

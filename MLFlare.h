@@ -340,8 +340,12 @@ void stopSingleChange(void);
 
 void Encoder(void);
 void SetEncoderUnit(void);
+/** set the output bit state (see the defination of MLOutSensor)  */
 void SetBitState(int bit, MLLevel level);
-MLLevel GetBitState(int bit);
+/** get input bit state ( see the defination of MLInSensor) */
+MLLevel GetInBitState(int bit);
+/** get output bit state(see the defination of MLOutSensor) */
+MLLevel GetOutBitState(int bit);
 
 // get axis's param.
 AxisParam GetAxisParam(int axis);

@@ -2691,7 +2691,7 @@ void SetBitState(int bit, MLLevel level) {
     SetOutputBitState(bit, level);
 }
 
-MLLevel GetBitState(int bit) {
+MLLevel GetInBitState(int bit) {
     MLLevel level = MLLow;
     
     if (gHandle != -1) {
@@ -2701,14 +2701,14 @@ MLLevel GetBitState(int bit) {
     return level;
 }
 
-bool GetOutBitState(int bit) {
+MLLevel GetOutBitState(int bit) {
     MLLevel level = MLLow;
     
     if (gHandle != -1) {
         level = smc_read_outbit(gHandle, bit);
     }
     
-    return level==MLLow;
+    return level;
 }
 
 MLLevel GetOutBit(int bit) {

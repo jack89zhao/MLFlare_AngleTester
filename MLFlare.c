@@ -2938,7 +2938,7 @@ int CheckSensor() {
             }
             
             // check side door
-            if(inStates[MLInSideDoorOpened]==MLLow) {
+            if(inStates[MLInSideDoorOpened]==MLHigh) {
                 Logger(MLLogWarning, "<%s>: Side door opened.\n", __func__);
             }
             

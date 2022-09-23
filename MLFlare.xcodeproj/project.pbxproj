@@ -9,14 +9,10 @@
 /* Begin PBXBuildFile section */
 		422C946022DDACD100D16C9C /* DLRS1A.c in Sources */ = {isa = PBXBuildFile; fileRef = 422C945E22DDACD100D16C9C /* DLRS1A.c */; };
 		422C946122DDACD100D16C9C /* DLRS1A.h in Headers */ = {isa = PBXBuildFile; fileRef = 422C945F22DDACD100D16C9C /* DLRS1A.h */; };
-		427C57A722E5498500C29A97 /* XJC608T.c in Sources */ = {isa = PBXBuildFile; fileRef = 427C57A522E5498500C29A97 /* XJC608T.c */; };
-		427C57A822E5498500C29A97 /* XJC608T.h in Headers */ = {isa = PBXBuildFile; fileRef = 427C57A622E5498500C29A97 /* XJC608T.h */; };
 		428AA2AA22D43E62008F2D32 /* byte_fifo.h in Headers */ = {isa = PBXBuildFile; fileRef = 428AA2A622D43E62008F2D32 /* byte_fifo.h */; };
 		428AA2AB22D43E62008F2D32 /* serial.h in Headers */ = {isa = PBXBuildFile; fileRef = 428AA2A722D43E62008F2D32 /* serial.h */; };
 		428AA2AC22D43E62008F2D32 /* serial.c in Sources */ = {isa = PBXBuildFile; fileRef = 428AA2A822D43E62008F2D32 /* serial.c */; };
 		428AA2AD22D43E62008F2D32 /* byte_fifo.c in Sources */ = {isa = PBXBuildFile; fileRef = 428AA2A922D43E62008F2D32 /* byte_fifo.c */; };
-		42E7FF3522E1BF0600AC99CB /* CL200A.c in Sources */ = {isa = PBXBuildFile; fileRef = 42E7FF3322E1BF0600AC99CB /* CL200A.c */; };
-		42E7FF3622E1BF0600AC99CB /* CL200A.h in Headers */ = {isa = PBXBuildFile; fileRef = 42E7FF3422E1BF0600AC99CB /* CL200A.h */; };
 		42F5BD3F22CB3F8B00B80C9A /* MLFlare.c in Sources */ = {isa = PBXBuildFile; fileRef = 42F5BD3D22CB3F8B00B80C9A /* MLFlare.c */; };
 		42F5BD4122CB54DC00B80C9A /* libLTSMC.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 42F5BD4022CB54DC00B80C9A /* libLTSMC.dylib */; };
 		42F5BD5722CDF31E00B80C9A /* MLConfiger.h in Headers */ = {isa = PBXBuildFile; fileRef = 42F5BD5522CDF31E00B80C9A /* MLConfiger.h */; };
@@ -32,14 +28,10 @@
 /* Begin PBXFileReference section */
 		422C945E22DDACD100D16C9C /* DLRS1A.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = DLRS1A.c; sourceTree = "<group>"; };
 		422C945F22DDACD100D16C9C /* DLRS1A.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DLRS1A.h; sourceTree = "<group>"; };
-		427C57A522E5498500C29A97 /* XJC608T.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = XJC608T.c; sourceTree = "<group>"; };
-		427C57A622E5498500C29A97 /* XJC608T.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = XJC608T.h; sourceTree = "<group>"; };
 		428AA2A622D43E62008F2D32 /* byte_fifo.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = byte_fifo.h; sourceTree = "<group>"; };
 		428AA2A722D43E62008F2D32 /* serial.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = serial.h; sourceTree = "<group>"; };
 		428AA2A822D43E62008F2D32 /* serial.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = serial.c; sourceTree = "<group>"; };
 		428AA2A922D43E62008F2D32 /* byte_fifo.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = byte_fifo.c; sourceTree = "<group>"; };
-		42E7FF3322E1BF0600AC99CB /* CL200A.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = CL200A.c; sourceTree = "<group>"; };
-		42E7FF3422E1BF0600AC99CB /* CL200A.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CL200A.h; sourceTree = "<group>"; };
 		42F5BD3522CB3F5900B80C9A /* libMLFlare.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; includeInIndex = 0; path = libMLFlare.dylib; sourceTree = BUILT_PRODUCTS_DIR; };
 		42F5BD3D22CB3F8B00B80C9A /* MLFlare.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = MLFlare.c; sourceTree = "<group>"; };
 		42F5BD4022CB54DC00B80C9A /* libLTSMC.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libLTSMC.dylib; sourceTree = "<group>"; };
@@ -83,10 +75,6 @@
 				42F5BD6122D06D5900B80C9A /* MLExpection.h */,
 				422C945F22DDACD100D16C9C /* DLRS1A.h */,
 				422C945E22DDACD100D16C9C /* DLRS1A.c */,
-				42E7FF3422E1BF0600AC99CB /* CL200A.h */,
-				42E7FF3322E1BF0600AC99CB /* CL200A.c */,
-				427C57A622E5498500C29A97 /* XJC608T.h */,
-				427C57A522E5498500C29A97 /* XJC608T.c */,
 				42F69E18235B37A0001260DE /* JKCL200A.h */,
 				42F69E19235B37A0001260DE /* JKCL200A.c */,
 				E47C7DF022F138A700C3C38C /* SCA126T.h */,
@@ -114,12 +102,10 @@
 				E47C7DF222F1395500C3C38C /* SCA126T.h in Headers */,
 				428AA2AA22D43E62008F2D32 /* byte_fifo.h in Headers */,
 				428AA2AB22D43E62008F2D32 /* serial.h in Headers */,
-				42E7FF3622E1BF0600AC99CB /* CL200A.h in Headers */,
 				42F5BD5722CDF31E00B80C9A /* MLConfiger.h in Headers */,
 				42F69E1A235B37A0001260DE /* JKCL200A.h in Headers */,
 				422C946122DDACD100D16C9C /* DLRS1A.h in Headers */,
 				42F5BD6322D06D5900B80C9A /* MLExpection.h in Headers */,
-				427C57A822E5498500C29A97 /* XJC608T.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -182,14 +168,12 @@
 			files = (
 				E42EE7172316956B000736E1 /* cserial.c in Sources */,
 				422C946022DDACD100D16C9C /* DLRS1A.c in Sources */,
-				42E7FF3522E1BF0600AC99CB /* CL200A.c in Sources */,
 				428AA2AC22D43E62008F2D32 /* serial.c in Sources */,
 				42F5BD3F22CB3F8B00B80C9A /* MLFlare.c in Sources */,
 				42F5BD5822CDF31E00B80C9A /* MLConfiger.c in Sources */,
 				428AA2AD22D43E62008F2D32 /* byte_fifo.c in Sources */,
 				E47C7DF122F138A800C3C38C /* SCA126T.c in Sources */,
 				42F69E1B235B37A0001260DE /* JKCL200A.c in Sources */,
-				427C57A722E5498500C29A97 /* XJC608T.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

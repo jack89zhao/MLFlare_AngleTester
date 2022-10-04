@@ -191,7 +191,7 @@ void ResetAllAxis(bool pthread);
 // ========================= private method ============================
 
 char* GetLibraryVersion(void) {
-    return "v2.0.0";
+    return "v2.0.1";
 }
 
 static char** ListUSBDeviceNames(int *count)
@@ -510,7 +510,7 @@ void GetAxisErrCode(int axis, DWORD *errCode) {
     short rc = nmcs_get_node_od(gHandle, 2, 1002+axis, 0x603F, 00, 16, errCode);
 //    short rc = nmcs_get_axis_errcode(gHandle, axis, errCode);
     if(rc!=0) {
-        Logger(MLLogError, "<GetAxisErrCode>: fail to get axis<%d>(nodeId:%d) error code. (ret=%d)\n", axis, 1002+axis, rc);
+        Logger(MLLogWarning, "<GetAxisErrCode>: fail to get axis<%d>(nodeId:%d) error code. (ret=%d)\n", axis, 1002+axis, rc);
     }
 }
 
@@ -559,7 +559,7 @@ bool CheckAxisParameters(MLAxis axis, int mode)
     if (retry >= 3 || rtn != 0) {
         param.isRuning = false;
         isNeedStop = true;
-        Logger(MLLogError, "<%s>: unexpected axis {%d} parameters { minSpeed:%.2lf, maxSpeed:%.2lf, stopSpeed:%.2lf accTime:%.2lf, decTime:%.2lf .\n", __func__, axis, checkStartSpeed/param.ppratio, checkTargetSpeed/param.ppratio, checkStopSpeed/param.ppratio, checkAccTime, checkDecTime);
+        Logger(MLLogError, "<%s>: unexpected axis {%d} parameters { minSpeed:%.2lf(ex:%.2lf), maxSpeed:%.2lf(ex:%.2lf), stopSpeed:%.2lf(ex:%.2lf) accTime:%.2lf(ex:%.2lf).\n", __func__, axis, checkStartSpeed/param.ppratio, param.startSpeed, checkTargetSpeed/param.ppratio, targetSpeed, checkStopSpeed/param.ppratio, param.stopSpeed, checkAccTime, param.accTime);
         return false;
     }
     
@@ -641,7 +641,7 @@ void GetAxisParamInRegister(MLAxis axis, float *axisParams) {
 //    axisParams = malloc(sizeof(float)*AxisParamLengthInRegister);
     short rc = smc_get_persistent_reg_float(gHandle, AxisParamStartIndex+(axis-MLAxisRotation)*AxisParamLengthInRegister, AxisParamLengthInRegister, axisParams);
     if(rc!=0) {
-        Logger(MLLogError, "<GetAxisParamInRegister>: fail to get parameters of axis %d\n", axis);
+        Logger(MLLogWarning, "<GetAxisParamInRegister>: fail to get parameters of axis %d. (ret: %d)\n", axis, rc);
     }
 }
 
@@ -700,6 +700,7 @@ bool InitializeSystem() {
     if (illuminometerPortName != NULL) { free(illuminometerPortName); illuminometerPortName = NULL; }
     if (anglePortName != NULL) { free(anglePortName); anglePortName = NULL; }
 
+    Logger(MLLogInfo, "\n\n-------------------- load MT driver --------------------");
     Logger(MLLogInfo, "<%s>: Flare library version: {%s}.\n", __func__, GetLibraryVersion());
     
     bool flag = true;
@@ -995,7 +996,7 @@ void PowerOff() {
 }
 
 // 初始化寄存器数据
-void InitRegister() {
+void InitRegister(void) {
     // 将默认轴参数写入寄存器
     int size = 1024;
     char *zeroData = malloc(sizeof(char)*size);
@@ -1064,13 +1065,14 @@ void InitializeCalibrationData() {
 }
 
 bool Connect(char *ip) {
-    Logger(MLLogInfo, "\n\n\n----------------- start ----------------------\n");
+    Logger(MLLogInfo, "\n-----------------------------------\n", __func__);
+    Logger(MLLogInfo, "<%s> Connecting machine controller...\n", __func__);
     
     bool flag = IsValidIP(ip);
     gHandle = -1;
     gIsPowerOn = true;
     if (!flag) {
-        Logger(MLLogError, "<Connect>: Invaid IP {%s}.\n", ip);
+        Logger(MLLogError, "<%s>: Invaid IP {%s}.\n", __func__, ip);
     }
     
     isNeedStop = false;
@@ -1083,17 +1085,22 @@ bool Connect(char *ip) {
             WORD cardNum;
             DWORD cardTypeList;
             WORD cardIdList;
-            DWORD hwVersion, fwType, fwVersion, axisCount;
+            DWORD hwVersion, fwType, fwVersion, libVersion;
             smc_get_CardInfList(&cardNum, &cardTypeList, &cardIdList);
             smc_get_card_version(gHandle, &hwVersion);
             smc_get_card_soft_version(gHandle, &fwType, &fwVersion);
+            smc_get_card_lib_version(&libVersion);
 //            smc_get_total_axes(gHandle, &axisCount);
-            Logger(MLLogInfo, "<CardNum> = %d, <CardTypeList> = %ld, <CardIDList> = %d\n", cardNum, cardTypeList, cardIdList);
-            Logger(MLLogInfo, "<HardwareVersion> = %ld, <FirewareType> = %ld, <FirewareVersion> = %ld\n", hwVersion, fwType, fwVersion);
+            Logger(MLLogInfo, "-- <CardNum> = %d, <CardTypeList> = %ld, <CardIDList> = %d\n", cardNum, cardTypeList, cardIdList);
+            Logger(MLLogInfo, "-- <HardwareVersion> = %ld\n", hwVersion);
+            Logger(MLLogInfo, "-- <FirewareType> = %ld\n", fwType);
+            Logger(MLLogInfo, "-- <FirewareVersion> = %ld\n", fwVersion);
+            Logger(MLLogInfo, "-- <Library Version> = %ld\n", libVersion);
 //            if(axisCount!=gAxisNum+1) {
 //                Logger(MLLogError, "The count of valid axes is %d(expect: %d{1, %d}, the axis 0 should be a virtual axis)\n", axisCount-1, gAxisNum, gAxisNum);
 //            }
             
+            Logger(MLLogInfo, "<%s> try to clear alarm and [card] error code.\n", libVersion);
             nmcs_clear_card_errcode(gHandle);   // clear card error
             nmcs_clear_errcode(gHandle,2);      // clear bus error
             nmcs_set_alarm_clear(gHandle,2,0);
@@ -1120,27 +1127,23 @@ bool Connect(char *ip) {
             }
             
             SetBitState(MLOutLuxmetePower, MLLow);
+            Logger(MLLogInfo, "<%s>:Launch input signal watching thread.\n", __func__);
             CheckInputSignal();
-            Logger(MLLogInfo, "<Connect>: Success to connect controller.\n");
             CheckStart();
             CheckStop();
             CheckEmgStop();
             CheckStopActivedSignal();
-            DWORD carVersion, firmID, subFirmID, libVersion;
-            smc_get_card_version(gHandle, &carVersion);
-            Logger(MLLogInfo, "<Card Version> = %ld\n", carVersion);
-            smc_get_card_soft_version(gHandle, &firmID, &subFirmID);
-            Logger(MLLogInfo, "<Firmware Version> = 0x%x, <Subfirmware Version> = 0x%x\n", firmID, subFirmID);
-            smc_get_card_lib_version(&libVersion);
-            Logger(MLLogInfo, "<Library Version> = %ld\n", libVersion);
+            
             flag = true;
             SetEncoderUnit();
             
             CheckRegister();        // 检查寄存器状态，如寄存器数据未设置，自动初始化,
             InitializeCalibrationData();
             InitAxesAvailableStates();
+            
+            Logger(MLLogInfo, "<%s>:Successfully connect to machine controller.\n", __func__);
         } else {
-            Logger(MLLogError, "<Connect>: Fail to connect controller.\n");
+            Logger(MLLogError, "<%s>: Fail to connect controller.\n", __func__);
             sprintf(errmsg, "Fail to connect controller.\n");
             flag = false;
         }
@@ -1598,7 +1601,7 @@ void TJMoveAxis(void *args) {
         
         if (direction == 0) {
             if (2 == CheckAxisIOState(axis)) {
-                Logger(MLLogInfo, "<%s>: Axis %d at negative limit, not need move, rtn: {%d}.\n", __func__, axis, rtn);
+                Logger(MLLogInfo, "<%s>: Axis %d is already at negative limit. cancel action.\n", __func__, axis, rtn);
                 AxisStop(axis);
                 gIsTesting = false;
                 param.isRuning = false;
@@ -1607,7 +1610,7 @@ void TJMoveAxis(void *args) {
             }
         } else if (direction == 1) {
             if (1 == CheckAxisIOState(axis)) {
-                Logger(MLLogInfo, "<%s>: Axis %d at positive limit, not need move, rtn: {%d}.\n", __func__, axis, rtn);
+                Logger(MLLogInfo, "<%s>: Axis %d is already at positive limit. cancel action.\n", __func__, axis, rtn);
                 AxisStop(axis);
                 gIsTesting = false;
                 param.isRuning = false;
@@ -1827,29 +1830,28 @@ void JMoveAxisWithBlock(int axis, int direction, bool pthread) {
 }
 
 bool CheckAxisState(int *axises, int axisCount, bool pthread) {
-    bool flag = false;
-    int bitflags = 0;
+    bool allStopped = true;
     
+    bool stopFlags[axisCount];
     // 设定标志，默认为1， 如果变为0则表示轴运动到位.
     for (int i = 0; i < axisCount; i++) {
-        bitflags |= 1<<(axises[i]-1);
+        stopFlags[i] = false;
     }
     
     if (gHandle != -1) {
         do {
+            allStopped = true;
             for (int index = 0; index < axisCount; index++) {
                 int axis = axises[index];
-                
-                if (((bitflags >> (axis-1)) & 0x01) != 0) {
-                    if (gAxisAvailableStates[index]==0 || (1 == smc_check_done(gHandle, axis))) {    // check if the axis is disabled or stopped
-                        bitflags = (~bitflags) ^ (1 << (axis-1));
-                        bitflags = ~bitflags;
-                        
-                        AxisParam axisPrm = GetAxisParam(axis);
-                        axisPrm.isRuning = false;
-                        SetAxisParam(axis, axisPrm);
-                    }
+                bool stopped = (1 == smc_check_done(gHandle, axis));
+                if(stopped != stopFlags[index]) {
+                    stopFlags[index] = stopped;
+                    AxisParam axisPrm = GetAxisParam(axis);
+                    axisPrm.isRuning = stopped?false:true;
+                    SetAxisParam(axis, axisPrm);
+                    Logger(MLLogInfo, "<%s> Axis %d %s", axis, stopped ? "finish movement" : "moves again");
                 }
+                allStopped = allStopped && stopped;
             }
             
             if (isNeedStop) {   // stop to check axis state.
@@ -1859,15 +1861,13 @@ bool CheckAxisState(int *axises, int axisCount, bool pthread) {
             if (isNeedEmgStop) {
                 break;
             }
-            if (!bitflags) {    // 轴全部到位
-                flag = true;
-            }
-        } while (!flag && !pthread);
+            usleep(100*1000);
+        } while (!allStopped && !pthread);
     } else {
         Logger(MLLogInfo, "<%s>: Controller is disconnected.\n", __func__);
     }
     
-    return flag;
+    return allStopped;
 }
 
 bool CheckMutliAxisState(int *axises, int axisCount, func callback, double value1, double value2) {
@@ -2174,7 +2174,7 @@ void TAllAxisGoHome() {
         Logger(MLLogInfo, "<%s>: Stop button pressed when lifter axis go home, at call `AxisGoHome`.\n", __func__);
         return;
     }
-    Logger(MLLogInfo, "Axes {%d, %d, %d, %d, %d, %d} going home...\n", MLAxisRotation, MLAxisHolderX, MLAxisHolderY, MLAxisX, MLAxisY);
+    Logger(MLLogInfo, "Axes {%d, %d, %d, %d, %d, %d} going home...\n", MLAxisRotation, MLAxisHolderX, MLAxisHolderY, MLAxisLaser, MLAxisX, MLAxisY);
     CheckAllAxisState();
     if (isNeedEmgStop) { Logger(MLLogInfo, "<%s>: Emg stop.\n", __func__); return; }
     int axises1[] = {MLAxisRotation, MLAxisHolderX, MLAxisHolderY, MLAxisLaser, MLAxisX, MLAxisY};
@@ -2899,23 +2899,29 @@ int CheckSensor() {
     pthread_mutex_init(&mutex, NULL);
     
     if (gHandle != -1) {
-        Logger(MLLogInfo, "<%s>: Start listen input signal...\n", __func__);
+        Logger(MLLogInfo, "-- <%s>: Watching input signal...\n", __func__);
         while (!gStopped) {
             int inStates[32];
             for(int bit=0; bit<32; bit++) {
                 inStates[bit] =  smc_read_inbit(gHandle, bit);
             }
             
-            for (int i = 0; i < 8; i++) {
-                if (inStates[i] == MLLow) {
+            for (int i = 0; i < 10; i++) {
+                if (i<8 && inStates[i] == MLLow) {
                     DWORD errCode;
                     GetAxisErrCode(i+1, &errCode);
-                    Logger(MLLogError, "<%s>: Servo {%d} alarm. (error code: 0x%lx)\n", __func__, i+1, errCode);
+                    Logger(MLLogError, "-- <%s>: Servo {%d} alarm. (error code: 0x%lx)\n", __func__, i+1, errCode);
                     memset(errmsg, 0, 256);
                     sprintf(errmsg, "Servo {%d} alarm. (error code: 0x%lx)\n", i+1, errCode);
                     smc_emg_stop(gHandle);
                     gIsTesting = false;
 //                    return 1;
+                } else {
+                    if(CheckAxisIOState(i+1)==0) {  // serve alarm
+                        Logger(MLLogError, "-- <%s>: Servo {%d} alarm.\n", __func__, i+1);
+                        smc_emg_stop(gHandle);
+                        gIsTesting = false;
+                    }
                 }
             }
             
@@ -2939,7 +2945,7 @@ int CheckSensor() {
             
             // check side door
             if(inStates[MLInSideDoorOpened]==MLHigh) {
-                Logger(MLLogWarning, "<%s>: Side door opened.\n", __func__);
+                Logger(MLLogWarning, "-- <%s>: Side door opened.\n", __func__);
             }
             
             // check raster
@@ -2954,14 +2960,14 @@ int CheckSensor() {
                     }
                 }
                 if (gIsTesting) {
-                    Logger(MLLogWarning, "<%s>: Grating alarm.\n", __func__);
+                    Logger(MLLogWarning, "-- <%s>: Grating alarm.\n", __func__);
                 }
             }
             
             // check Emg-Stop
             if (inStates[MLInEmgStop] == MLHigh) {
                 if (gIsPowerOn) {
-                    Logger(MLLogInfo, "<%s>: EMG stop button pressed.\n", __func__);
+                    Logger(MLLogInfo, "-- <%s>: EMG stop button pressed.\n", __func__);
                     isNeedEmgStop = true;
                     AllAxisStop();
                     gIsTesting = false;
@@ -2973,7 +2979,7 @@ int CheckSensor() {
             // check Stop button(red)
             if (inStates[MLInStop] == MLLow) {
                 if (gIsPowerOn) {
-                    Logger(MLLogInfo, "<%s>: Stop button pressed.\n", __func__);
+                    Logger(MLLogInfo, "-- <%s>: Stop button pressed.\n", __func__);
                     pthread_t thrd;
                     pthread_create(&thrd, NULL, (void*)AllAxisStop, NULL);
                     gIsStopTest = true;
@@ -2987,7 +2993,7 @@ int CheckSensor() {
             // check Reset button(blue)
             if (inStates[MLInReset] == MLLow) {
                 if (gIsPowerOn) {
-                    Logger(MLLogInfo, "<%s>: Reset button pressed.\n", __func__);
+                    Logger(MLLogInfo, "-- <%s>: Reset button pressed.\n", __func__);
                     usleep(200000);
                     gIsOpenDoor = true;
                     gIsTesting = false;
@@ -3005,7 +3011,7 @@ int CheckSensor() {
             // check start button(green)
             if (inStates[MLInStart] == MLLow) {
                 if (gIsTesting && gIsPowerOn) {
-                    Logger(MLLogInfo, "<%s>: start button pressed.\n", __func__);
+                    Logger(MLLogInfo, "-- <%s>: start button pressed.\n", __func__);
                     gIsTesting = false;
                 }
                 if (gIsPowerOn) {
@@ -3016,8 +3022,9 @@ int CheckSensor() {
             }
             usleep(100000);
         }
+        Logger(MLLogInfo, "-- <%s>: Input signal watching thread has ended \n", __func__);
     }
-    Logger(MLLogInfo, "<%s>: Stop listen input signal...\n", __func__);
+    
     pthread_mutex_destroy(&mutex);
     
     return 0;

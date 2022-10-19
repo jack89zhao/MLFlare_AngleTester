@@ -31,7 +31,7 @@
 #include <sys/timeb.h>
 #include <stdio.h>
 #include <time.h>
-#include <dirent.h>     // DIR
+#include <dirent.h>
 // Motion API Handle
 typedef int MLMotionHandle;
 
@@ -60,17 +60,15 @@ typedef enum {
     AP_InitPos          = 9,
     AP_TestPos          = 10,
     AP_Reserve1         = 11,
-    AP_Reserve2         = 12,
-    AP_Reserve3         = 13,
+    AP_Available        = 12,
+    AP_BrakeIO          = 13,
     AP_Equiv            = 14,
     AP_Backlash         = 15,
 }AxisParamIndex;
 const int BaseCalibrationDataStartIndex     = 500;      // 异常校准参考数据起始存储索引（浮点数索引，Axis1~Axis12 <==> 500～511）
-const int DisabledAxisStartIndex            = 4000;     // 轴禁用标示起始索引（字节索引）
 
 // gloable parameter
 static const int gAxisNum = 10;    // 当前轴数量
-static int gAxisAvailableStates[gAxisNum+1];      // 轴启用状态集（算上0轴）
 
 void InitializeCalibrationData(void);
 
@@ -130,16 +128,17 @@ static int dutCount;
 
 static bool gStopped;
 static bool gIsTesting;
-static bool gIsRaster;
+static bool gIsRasterBlocked;
 static bool gLuxConnected;
 
-static DoorState        doorState;
+static DoorState        gAutoDoorState = Door_Opened;
+static DoorState        gSideDoorState = Door_Closed;
 static LuxMeterState    luxmeterState;
 
 static bool gIsPowerOn;
 
 static bool gIsOpenDoor;
-static bool gIsCloseDoor;
+//static bool gIsCloseDoor;
 static bool gIsStartTest;
 static bool gIsEmgStopTest;
 static bool gIsStopTest;
@@ -189,7 +188,7 @@ void ResetAllAxis(bool pthread);
 // ========================= private method ============================
 
 char* GetLibraryVersion(void) {
-    return "v2.0.1";
+    return "v2.1.0";
 }
 
 static char** ListUSBDeviceNames(int *count)
@@ -491,17 +490,43 @@ void CheckAllAxisState(void) {
     Logger(MLLogInfo, "axes state: 1:%d, 2:%d, 3:%d, 4:%d, 5:%d, 6:%d, 7:%d, 8:%d, 9:%d, 10:%d\n", state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7], state[8], state[9]);
 }
 
+bool ChangeAxisIOBrake(int axis, bool brake) {
+    AxisParam ap = GetAxisParam(axis);
+    int brakeState = brake ? 1 : 0;
+    if(ap.brakeIO!=-1 && GetOutBitState(ap.brakeIO)!=brakeState) {
+        Logger(MLLogInfo, "%s axis-%d brake.", brake?"Hold":"Release", axis);
+        SetBitState(ap.brakeIO, brakeState);
+        return GetOutBitState(ap.brakeIO)==brakeState;
+    }
+    return true;
+}
+
+#define Servo_ON    0
+#define Servo_OFF   1
 bool GetAxisEnableState(int axis) {
     short state = smc_read_sevon_pin(gHandle, axis);
-    return state==0;
+    return state==Servo_ON;
+}
+
+bool SetAxisEnableStateInternal(int axis, bool enable) {
+    int targetState = enable ? Servo_ON : Servo_OFF;
+    int currentState = smc_read_sevon_pin(gHandle, axis);
+    if(currentState!=targetState) Logger(MLLogInfo, "<%s> %s Axis-%d", __func__, enable?"enable":"disable", axis);
+    if(enable) ChangeAxisIOBrake(axis, false); // 先松刹车再上使能
+    if(currentState != targetState) {
+        short ret = smc_write_sevon_pin(gHandle, axis, targetState);
+        if(ret!=0) {
+            Logger(MLLogWarning, "<%s> fail to %@ Axis-%d. [eCode=%d]", __func__, axis, enable?"enable":"disable", ret);
+        } else {
+            usleep(500*1000);
+        }
+    }
+    if(!enable) ChangeAxisIOBrake(axis, true); // 先断使能再刹车
+    return GetAxisEnableState(axis)==enable;
 }
 
 void SetAxisEnableState(int axis, bool enable) {
-    short ret = smc_write_sevon_pin(gHandle, axis, enable?0:1);
-    bool checkflag = GetAxisEnableState(axis);
-    if(enable==checkflag) {
-        
-    }
+    SetAxisEnableStateInternal(axis, enable);
 }
 
 void GetAxisErrCode(int axis, DWORD *errCode) {
@@ -532,6 +557,7 @@ bool CheckAxisParameters(MLAxis axis, int mode)
         rtn = smc_get_profile_unit(gHandle, axis, &checkStartSpeed, &checkTargetSpeed, &checkAccTime, &checkDecTime, &checkStopSpeed);
     } else {
         rtn = smc_get_home_profile_unit(gHandle, axis, &checkStartSpeed, &checkTargetSpeed, &checkAccTime, &checkDecTime);
+
     }
 
     if(rtn==0) {
@@ -571,10 +597,6 @@ short GetByteRegisterValue(DWORD valueIndex, char *value) {
 short SetByteRegisterValue(DWORD valueIndex, char *value) {
     short rc = smc_set_persistent_reg_byte(gHandle, valueIndex, 1, value);
     if(rc==0) {
-        if(valueIndex>=DisabledAxisStartIndex && valueIndex<=DisabledAxisStartIndex+gAxisNum) {
-            gAxisAvailableStates[valueIndex-DisabledAxisStartIndex] = value==0 ? 1 : 0;
-        }
-        
     }
     return rc;
 }
@@ -1002,29 +1024,21 @@ void InitRegister(void) {
         smc_set_persistent_reg_byte(0, i*size, size, zeroData);// 清零
     }
     float  defaultAxisParams[][16] = {
-        // start_speed, run_speed, stop_speed, home_speed, acc_time, dec_time, home_dir, home_level, pp_ratio, init_pos, test_pos, reserve1, reserve2, reserve3, equiv, backlash
-        {   10, 20, 10, 20,     1,  1,  1, 0,   100,    -110,  764,     0, 0, 0,    1, 1 },     // axis 1（Rotation Axis）
-        {   2,  3,  2,  3,      1,  1,  1, 0,   2500,   -2500, 0,   0, 0, 0,      1, 1},     // axis 2 (X Rotation)
-        {   3,  5,  3,  5,      1,  1,  1, 0,   2500,   0, 0,   0, 0, 0,          1, 1},     // axis 3 (Y Rotation)
-        {   5,  5,  5,  5,      1,  1,  1, 0,   15000,  0, 0,   0, 0, 0,          1, 1},     // axis 4 (Lifter)
-        {   2, 3,  2,  3,       1,  1,  1, 0,   10000,   0, 36.5,    0, 0, 0,       1, 1},     // axis 5 (DUT X)
-        {   2, 3,  2,  3,       1,  1,  1, 0,   10000,   0, 40,  0, 0, 0,         1, 1},     // axis 6 (DUT Y)
-        {   1, 8,   1,  5,      1,  1,  1, 0,   40000,  0, 0,   0, 0, 0,           1, 1},     // axis 7 (Light Source)
-        {   40, 120, 40, 120,   3,  3,  1, 0,   800,    -12.5, 726,     680, 0, 0,  1, 1},     // axis 8 (Laser)
-        {   1, 10, 1, 10,       1,  1,  1, 0,   2000,   16000, 5,   0, 0, 0,      1, 1},     // axis 9 (X)
-        {   1, 10, 1, 10 ,      1,  1,  1, 0,   2000,   -10000, -8,     0, 0, 0,    1, 1}      // axis 10 (Y)
+        // start_speed, run_speed, stop_speed, home_speed, acc_time, dec_time, home_dir, home_level, pp_ratio, init_pos, test_pos, reserve1, Available, BrakeIO, equiv, backlash
+        {   10, 20, 10, 20,     1,  1,  1, 0,   100,    -110,  764, 0,      1, -1,       1, 1 },     // axis 1（Rotation Axis）
+        {   2,  3,  2,  3,      1,  1,  1, 0,   2500,   -2500, 0, 0,        1, -1,       1, 1},     // axis 2 (X Rotation)
+        {   3,  5,  3,  5,      1,  1,  1, 0,   2500,   0, 0, 0,            1, 27,        1, 1},     // axis 3 (Y Rotation)
+        {   5,  5,  5,  5,      1,  1,  1, 0,   15000,  0, 0, 0,            1, -1,        1, 1},     // axis 4 (Lifter)
+        {   2, 3,  2,  3,       1,  1,  1, 0,   10000,   0, 36.5, 0,        1, -1,       1, 1},     // axis 5 (DUT X)
+        {   2, 3,  2,  3,       1,  1,  1, 0,   10000,   0, 40, 0,          1, -1,       1, 1},     // axis 6 (DUT Y)
+        {   1, 8,   1,  5,      1,  1,  1, 0,   40000,  0, 0, 0,            1, -1,       1, 1},     // axis 7 (Light Source)
+        {   20, 50, 20, 50,     3,  3,  1, 0,   800,    -12.5, 726, 680,    1, -1,     1, 1},     // axis 8 (Laser)
+        {   1, 10, 1, 10,       1,  1,  1, 0,   2000,   16000, 5, 0,        1, -1,       1, 1},     // axis 9 (X)
+        {   1, 10, 1, 10 ,      1,  1,  1, 0,   2000,   -10000, -8, 0,      1, -1,       1, 1}      // axis 10 (Y)
     };
     short rc = smc_set_persistent_reg_float(0, AxisParamStartIndex, AxisParamLengthInRegister*10, (float *)defaultAxisParams);
     if(rc!=0) {
         Logger(MLLogError, "<InitRegister>: write initial axes's parameter to registe failed.");
-    }
-    
-    for(int i=0; i<=gAxisNum; i++) {
-        char state = 0;  // 默认所有轴启用
-        short rc = smc_set_persistent_reg_byte(gHandle, DisabledAxisStartIndex+i, 1, &state);
-        if(rc!=0) {
-            Logger(MLLogError, "<InitRegister>: initialize disabled axes table(axis: %@).", i);
-        }
     }
     
     // set initialized flag
@@ -1040,14 +1054,6 @@ void CheckRegister(void) {
     }
 }
 
-void InitAxesAvailableStates(void) {
-    for(int axis=0; axis<=gAxisNum; axis++) {
-        char disableState = 0;
-        smc_get_persistent_reg_byte(gHandle, DisabledAxisStartIndex+axis, 1, &disableState);
-        gAxisAvailableStates[axis] = (disableState==0 ? 1 : 0);
-    }
-}
-
 void InitializeCalibrationData() {
     for(int i=MLAxisRotation; i<=gAxisNum; i++) {
         AxisParam *ap = &gAxisPrm[i];
@@ -1058,11 +1064,13 @@ void InitializeCalibrationData() {
         ap->homeLevel    = GetSingleAxisParamInRegister(i, AP_HomeLevel);
         ap->equiv        = GetSingleAxisParamInRegister(i, AP_Equiv);
         ap->backlash     = GetSingleAxisParamInRegister(i, AP_Backlash);
+        ap->brakeIO      = GetSingleAxisParamInRegister(i, AP_BrakeIO);
+        ap->available    = GetSingleAxisParamInRegister(i, AP_Available);
     }
 }
 
 bool Connect(char *ip) {
-    Logger(MLLogInfo, "\n-----------------------------------\n", __func__);
+    Logger(MLLogInfo, "\n-----------------------------------\n");
     Logger(MLLogInfo, "<%s> Connecting machine controller...\n", __func__);
     
     bool flag = IsValidIP(ip);
@@ -1093,11 +1101,8 @@ bool Connect(char *ip) {
             Logger(MLLogInfo, "-- <FirewareType> = %ld\n", fwType);
             Logger(MLLogInfo, "-- <FirewareVersion> = %ld\n", fwVersion);
             Logger(MLLogInfo, "-- <Library Version> = %ld\n", libVersion);
-//            if(axisCount!=gAxisNum+1) {
-//                Logger(MLLogError, "The count of valid axes is %d(expect: %d{1, %d}, the axis 0 should be a virtual axis)\n", axisCount-1, gAxisNum, gAxisNum);
-//            }
             
-            Logger(MLLogInfo, "<%s> try to clear alarm and [card] error code.\n", libVersion);
+            Logger(MLLogInfo, "-- try to clear alarm and [card] error code.\n");
             nmcs_clear_card_errcode(gHandle);   // clear card error
             nmcs_clear_errcode(gHandle,2);      // clear bus error
             nmcs_set_alarm_clear(gHandle,2,0);
@@ -1117,10 +1122,8 @@ bool Connect(char *ip) {
             
             sleep(1);   // wait board init finish and stable.
             
-            short rtn = 0;
             for (int i = 1; i < 13 ; i++) {
-                rtn |= smc_write_sevon_pin(gHandle, i, 0);
-                usleep(200000);
+                SetAxisEnableStateInternal(i, true);
             }
             
             SetBitState(MLOutLuxmetePower, MLLow);
@@ -1136,7 +1139,6 @@ bool Connect(char *ip) {
             
             CheckRegister();        // 检查寄存器状态，如寄存器数据未设置，自动初始化,
             InitializeCalibrationData();
-            InitAxesAvailableStates();
             
             Logger(MLLogInfo, "<%s>:Successfully connect to machine controller.\n", __func__);
         } else {
@@ -1217,17 +1219,17 @@ void TMoveAxisToPosition(void *args) {
     double Myencoder_value=0;
     
     assert(axis >= 0);
+    AxisParam param = gAxisPrm[axis];
     
     // check if the axis is enalbed
-    if(gAxisAvailableStates[axis]==0) {
+    if(param.available==false) {
         Logger(MLLogInfo, "<%s>: disabled axis %d\n", __func__, axis);
         gIsTesting = false;
         return;
     }
     
     if (gHandle != -1) {
-        rtn |= smc_write_sevon_pin(gHandle, axis, 0);
-        AxisParam param = gAxisPrm[axis];
+        SetAxisEnableStateInternal(axis, true);
         rtn |= smc_set_pulse_outmode(gHandle, axis, MLPluseOutMode);
         rtn |= smc_set_equiv(gHandle, axis, param.equiv);
 //        rtn |= smc_set_backlash_unit(gHandle, axis, param.backlash);
@@ -1270,12 +1272,12 @@ void TMoveAxisToPosition(void *args) {
 }
 
 long MoveAxisToPosition(int axis, double position, bool blocked, bool pthread) {
-    if(gAxisAvailableStates[axis]==0) {
+    AxisParam axisPrm = GetAxisParam(axis);
+    if(axisPrm.available==false) {
         Logger(MLLogInfo, "<%s>:axis %d is disabled.\n", __func__, axis);
         return -1;
     }
     
-    AxisParam axisPrm = GetAxisParam(axis);
     if (axisPrm.isRuning) { return 0; }
     if (isNeedStop) {return 0;}
     if (isNeedEmgStop) {return 0;}
@@ -1298,7 +1300,7 @@ long MoveAxisToPosition(int axis, double position, bool blocked, bool pthread) {
         assert(axis >= 0);
         
         if (gHandle != -1) {
-            smc_write_sevon_pin(gHandle, axis, 0);
+            SetAxisEnableStateInternal(axis, true);
             AxisParam param = gAxisPrm[axis];
             rtn |= smc_set_pulse_outmode(gHandle, axis, MLPluseOutMode);
             rtn |= smc_set_equiv(gHandle, axis, param.equiv);
@@ -1374,7 +1376,8 @@ void TMoveAxisDistance(void *args) {
     
     assert(axis >= 0);
     
-    if(gAxisAvailableStates[axis]==0) {
+    AxisParam param = gAxisPrm[axis];
+    if(param.available==false) {
         Logger(MLLogInfo, "<%s>: axis %d is disabled\n", __func__, axis);
         return;
     }
@@ -1385,8 +1388,8 @@ void TMoveAxisDistance(void *args) {
     gIsTesting = true;
     
     if (gHandle != -1) {
-        smc_write_sevon_pin(gHandle, axis, 0);
-        AxisParam param = gAxisPrm[axis];
+        SetAxisEnableStateInternal(axis, true);
+        
         rtn |= smc_set_pulse_outmode(gHandle, axis, MLPluseOutMode);
         rtn |= smc_set_equiv(gHandle, axis, param.equiv);
 //        rtn |= smc_set_backlash_unit(gHandle, axis, param.backlash);
@@ -1434,7 +1437,8 @@ void TMoveAxisDistance(void *args) {
 }
 
 bool MoveAxisDistance(int axis, double distance, bool blocked, bool pthread) {
-    if(gAxisAvailableStates[axis]==0) {
+    AxisParam axisPrm = GetAxisParam(axis);
+    if(axisPrm.available==false) {
         Logger(MLLogInfo, "<%s>: axis %d is disabled.\n", __func__, axis);
         return true;
     }
@@ -1443,7 +1447,6 @@ bool MoveAxisDistance(int axis, double distance, bool blocked, bool pthread) {
     }
     
     if (pthread) {
-        AxisParam axisPrm = GetAxisParam(axis);
         if (axisPrm.isRuning) { return false; }
         if (isNeedStop) {return 0;}
         if (isNeedEmgStop) {return 0;}
@@ -1469,7 +1472,7 @@ bool MoveAxisDistance(int axis, double distance, bool blocked, bool pthread) {
         assert(axis >= 0);
         
         if (gHandle != -1) {
-            smc_write_sevon_pin(gHandle, axis, 0);
+            SetAxisEnableStateInternal(axis, true);
             AxisParam param = gAxisPrm[axis];
             rtn |= smc_set_pulse_outmode(gHandle, axis, MLPluseOutMode);
             rtn |= smc_set_equiv(gHandle, axis, param.equiv);
@@ -1522,7 +1525,8 @@ bool MoveAxisDistance(int axis, double distance, bool blocked, bool pthread) {
 }
 
 long MoveAxisDistanceQuick(int axis, double distance, bool blocked) {
-    if(gAxisAvailableStates[axis]==0) {
+    AxisParam param = gAxisPrm[axis];
+    if(param.available==false) {
         Logger(MLLogInfo, "<%s>: axis %d is disabled\n", __func__, axis);
         return -1;
     }
@@ -1537,8 +1541,8 @@ long MoveAxisDistanceQuick(int axis, double distance, bool blocked) {
     if (isNeedStop) {return 0;}
     if (isNeedEmgStop) {return 0;}
     if (gHandle != -1) {
-        smc_write_sevon_pin(gHandle, axis, 0);
-        AxisParam param = gAxisPrm[axis];
+        SetAxisEnableStateInternal(axis, true);
+        
         rtn |= smc_set_pulse_outmode(gHandle, axis, MLPluseOutMode);
         rtn |= smc_set_equiv(gHandle, axis, param.equiv);
 //        rtn |= smc_set_backlash_unit(gHandle, axis, param.backlash);
@@ -1586,7 +1590,7 @@ void TJMoveAxis(void *args) {
     if (isNeedEmgStop) {return;}
     short rtn = 0;
     if (gHandle != -1) {
-        if(gAxisAvailableStates[axis]==0) {
+        if(param.available==false) {
             Logger(MLLogInfo, "<%s>: axis %d is disabled\n", __func__, axis);
             return;
         }
@@ -1594,7 +1598,7 @@ void TJMoveAxis(void *args) {
         
         param.isRuning = true;
         gAxisPrm[axis] = param;
-        rtn |= smc_write_sevon_pin(gHandle, axis, 0);
+        SetAxisEnableStateInternal(axis, true);
         
         if (direction == 0) {
             if (2 == CheckAxisIOState(axis)) {
@@ -1650,7 +1654,7 @@ void JMoveAxis(int axis, int direction, bool pthread) {
         short rtn = 0;
         
         if (gHandle != -1) {
-            if(gAxisAvailableStates[axis]==0) {
+            if(param.available==false) {
                 Logger(MLLogInfo, "<%s>: axis %d is disabled\n", __func__, axis);
                 return;
             }
@@ -1658,7 +1662,7 @@ void JMoveAxis(int axis, int direction, bool pthread) {
             
             param.isRuning = true;
             gAxisPrm[axis] = param;
-            rtn |= smc_write_sevon_pin(gHandle, axis, 0);
+            SetAxisEnableStateInternal(axis, true);
             
             if (direction == 0) {
                 if (2 == CheckAxisIOState(axis)) {
@@ -1714,7 +1718,7 @@ void JHoldMoveAxis(int axis, int direction) {
     if (gHandle != -1) {
         AxisParam param = gAxisPrm[axis];
         
-        rtn |= smc_write_sevon_pin(gHandle, axis, 0);
+        SetAxisEnableStateInternal(axis, true);
         
         if (direction == 0) {
             if (2 == CheckAxisIOState(axis)) {
@@ -1789,7 +1793,7 @@ void JMoveAxisWithBlock(int axis, int direction, bool pthread) {
     if (isNeedEmgStop) {return;}
     Logger(MLLogInfo, "<%s>: Axis %d call `JMoveAxisWithBlock`\n", __func__, axis);
     
-    if(gAxisAvailableStates[axis]==0) {
+    if(axisPrm.available==false) {
         Logger(MLLogInfo, "<%s>: axis %d is disabled\n", __func__, axis);
         return;
     }
@@ -1846,7 +1850,7 @@ bool CheckAxisState(int *axises, int axisCount, bool pthread) {
                     AxisParam axisPrm = GetAxisParam(axis);
                     axisPrm.isRuning = stopped?false:true;
                     SetAxisParam(axis, axisPrm);
-                    Logger(MLLogInfo, "<%s> Axis %d %s", axis, stopped ? "finish movement" : "moves again");
+                    Logger(MLLogInfo, "<%s> Axis %d %s", __func__, axis, stopped ? "finish movement" : "moves again");
                 }
                 allStopped = allStopped && stopped;
             }
@@ -1950,7 +1954,7 @@ void AxisGoHome(int axis, bool blocked) {
     short rtn = 0;
     
     if (gHandle != -1) {
-        if(gAxisAvailableStates[axis]==0) {
+        if(param.available==false) {
             Logger(MLLogInfo, "<%s>: axis %d is disabled\n", __func__, axis);
             gIsTesting = false;
             return;
@@ -1963,7 +1967,7 @@ void AxisGoHome(int axis, bool blocked) {
         bool bSuccess = CheckAxisParameters(axis, 1);   // check home parameter
         
         if (bSuccess) {
-            rtn |= smc_write_sevon_pin(gHandle, axis, 0);
+            SetAxisEnableStateInternal(axis, true);
             rtn |= smc_set_pulse_outmode(gHandle, axis, MLPluseOutMode);
             rtn |= smc_set_equiv(gHandle, axis, param.equiv);
 //            rtn |= smc_set_backlash_unit(gHandle, axis, param.backlash);
@@ -1997,7 +2001,7 @@ void AxisGoHome(int axis, bool blocked) {
                         usleep(100000);
                     }
                 } else {
-                    Logger(MLLogInfo, "<%s>: Axis %d go home in unblock mode\n", __func__, axis);
+                    Logger(MLLogInfo, "<%s>: Axis %d go home using block mode\n", __func__, axis);
                 }
             } else {
                 Logger(MLLogError, "<%s>: Axis %d fail to moving at home mode, rtn: {%d}.\n", __func__, axis, rtn);
@@ -2148,7 +2152,7 @@ void TAllAxisGoHome() {
     if (isNeedStop) {return;}
     /* shield axis 9 */
 //    if (isNeedEmgStop) {return;}
-    if(gAxisAvailableStates[MLAxisLightSource]==1) {
+    if(gAxisPrm[MLAxisLightSource].available) {
         Logger(MLLogInfo, "axis %d go negative limit...\n", MLAxisLightSource);
         CheckAllAxisState();
         JMoveAxisWithBlock(MLAxisLightSource, 0, false);
@@ -2522,14 +2526,15 @@ void ManyAxisGoHome(int *axises, int axisCount, bool pthread) {
         
         for (int index = 0; index < axisCount; index++) {
             MLAxis axis = axises[index];
+            AxisParam axisPrm = GetAxisParam(axis);
             
-            if(gAxisAvailableStates[axis]==0) {
+            if(axisPrm.available==false) {
                 Logger(MLLogInfo, "<%s>: axis %d is disabled\n", __func__, axis);
                 continue;
             }
             
             Logger(MLLogInfo, "<%s>: Axis %d start go to limit ...\n", __func__, axis);
-            AxisParam axisPrm = GetAxisParam(axis);
+            
             int ioState = CheckAxisIOState(axis);
             int dir = axisPrm.homeDirect ? 0 : 1;
             if((dir==1 && ioState!=1)
@@ -2556,6 +2561,7 @@ void ManyAxisGoHome(int *axises, int axisCount, bool pthread) {
         }
         if (isNeedEmgStop) { Logger(MLLogInfo, "<%s>: Emg stop.\n", __func__); return; }
         
+        usleep(500*1000);
         for (int index = 0; index < axisCount; index++) {
             MLAxis axis = axises[index];
             Logger(MLLogInfo, "<%s>: Axis %d start go home ...\n", __func__, axis);
@@ -2639,6 +2645,33 @@ void SetAxisRatio(int axis, double ratio) {
     gAxisPrm[axis] = prm;
 }
 
+
+MLLevel GetOutBit(int bit) {
+    MLLevel lvl = smc_read_outbit(gHandle, bit);
+    return lvl;
+}
+
+DWORD GetOutbits(int port) {
+    DWORD bits=0;
+    if(gHandle!=-1) {
+        bits = smc_read_outport(gHandle, port);
+    }
+    return bits;
+}
+
+MLLevel GetInBit(int bit) {
+    MLLevel lvl = smc_read_inbit(gHandle, bit);
+    return lvl;
+}
+
+DWORD GetInBits(int port) {
+    DWORD bits=0;
+    if(gHandle!=-1) {
+        bits = smc_read_inport(gHandle, port);
+    }
+    return bits;
+}
+
 static bool SetOutputBitState(MLOutSensor outbit, MLLevel level)
 {
     int rst = -1;
@@ -2670,13 +2703,22 @@ static bool SetOutputBitState(MLOutSensor outbit, MLLevel level)
             usleep(200*1000);
             DoorState targetState = outbit==MLOutDoorClose ? Door_Closed : Door_Opened;
             int time = 0; int timeout=8000;
-            while(doorState!=targetState && time<timeout
-                  && (outbit==MLOutDoorOpen || (outbit==MLOutDoorClose && gIsRaster==false))) {
+            while(gAutoDoorState!=targetState && time<timeout
+                  && (outbit==MLOutDoorOpen || (outbit==MLOutDoorClose && gIsRasterBlocked==false))) {
                 usleep(100*1000);
                 time+=100;
             }
             rst = smc_write_outbit(gHandle, outbit, reverseLevel);
             Logger(MLLogInfo, "<%s> set Bit[%d:%s] to %d [result: %d]\n", __func__, outbit, outBitDescs[outbit], reverseLevel, rst);
+            if(gIsRasterBlocked) {
+                Logger(MLLogInfo, "<%s> Grating is blocked, the door will be opened. \n", __func__);
+                DWORD outbits = GetOutbits(0);
+                if(((outbits>>MLOutDoorClose)&0x01)==MLLow) {
+                    // open door
+                    usleep(200*1000);
+                    SetBitState(MLOutDoorOpen, MLLow);
+                }
+            }
         }
 
     }
@@ -2706,32 +2748,6 @@ MLLevel GetOutBitState(int bit) {
     }
     
     return level;
-}
-
-MLLevel GetOutBit(int bit) {
-    MLLevel lvl = smc_read_outbit(gHandle, bit);
-    return lvl;
-}
-
-DWORD GetOutbits(int port) {
-    DWORD bits=0;
-    if(gHandle!=-1) {
-        bits = smc_read_outport(gHandle, port);
-    }
-    return bits;
-}
-
-MLLevel GetInBit(int bit) {
-    MLLevel lvl = smc_read_inbit(gHandle, bit);
-    return lvl;
-}
-
-DWORD GetInBits(int port) {
-    DWORD bits=0;
-    if(gHandle!=-1) {
-        bits = smc_read_inport(gHandle, port);
-    }
-    return bits;
 }
 
 void Cylinder(int bit, MLLevel level) {
@@ -2862,7 +2878,7 @@ bool DoorOpen() {
         SetBitState(MLOutDoorOpen, MLLow);
         SetBitState(MLOutSunLight, MLLow);      // 打开日光灯
 
-        if(doorState==Door_Opened) {
+        if(gAutoDoorState==Door_Opened) {
             Logger(MLLogInfo, "<%s>: Auto-door has opened\n", __func__);
         } else {
             Logger(MLLogError, "<%s>: Auto-door cannot be opened\n", __func__);
@@ -2870,7 +2886,7 @@ bool DoorOpen() {
             sprintf(errmsg, "Auto-door cannot be opened\n");
         }
     }
-    return doorState==Door_Opened;
+    return gAutoDoorState==Door_Opened;
 }
 
 bool DoorClose() {
@@ -2879,7 +2895,7 @@ bool DoorClose() {
         SetBitState(MLOutSunLight, MLHigh);             // 关闭日关灯
         SetBitState(MLOutDoorClose, MLLow);             // 关门
         
-        if(doorState==Door_Closed) {
+        if(gAutoDoorState==Door_Closed) {
             Logger(MLLogInfo, "<%s>: Auto-door has closed\n", __func__);
         } else {
             Logger(MLLogError, "<%s>: Auto-door cannot be closed\n", __func__);
@@ -2887,7 +2903,7 @@ bool DoorClose() {
             sprintf(errmsg, "Auto-door cannot be closed\n");
         }
     }
-    return doorState==Door_Closed;
+    return gAutoDoorState==Door_Closed;
 }
 
 // union API
@@ -2911,24 +2927,26 @@ int CheckSensor() {
                     memset(errmsg, 0, 256);
                     sprintf(errmsg, "Servo {%d} alarm. (error code: 0x%lx)\n", i+1, errCode);
                     smc_emg_stop(gHandle);
+                    ChangeAxisIOBrake(i, true);
                     gIsTesting = false;
 //                    return 1;
                 } else {
                     if(CheckAxisIOState(i+1)==0) {  // serve alarm
                         Logger(MLLogError, "-- <%s>: Servo {%d} alarm.\n", __func__, i+1);
                         smc_emg_stop(gHandle);
+                        ChangeAxisIOBrake(i, true);
                         gIsTesting = false;
                     }
                 }
             }
             
-            // check door
+            // check auto-door
             if( inStates[MLInDoorLeftClosed]==MLLow ) {
-                doorState = Door_Closed;
+                gAutoDoorState = Door_Closed;
             } else if( inStates[MLInDoorLeftOpened]==MLLow ) {
-                doorState = Door_Opened;
+                gAutoDoorState = Door_Opened;
             } else if( inStates[MLInDoorLeftOpened]==MLHigh && inStates[MLInDoorLeftClosed]==MLHigh ) {
-                doorState = Door_Moving;
+                gAutoDoorState = Door_Moving;
             }
             
             // check cylinder
@@ -2941,25 +2959,31 @@ int CheckSensor() {
             }
             
             // check side door
-            if(inStates[MLInSideDoorOpened]==MLHigh) {
-                Logger(MLLogWarning, "-- <%s>: Side door opened.\n", __func__);
+            DoorState sideDoorState;
+            if( inStates[MLInSideDoorOpened]==MLHigh ) {
+                sideDoorState = Door_Closed;
+            } else {
+                sideDoorState = Door_Opened;
             }
+            if(gSideDoorState!=sideDoorState) {
+                if(sideDoorState==Door_Opened) {
+                    Logger(MLLogWarning, "-- <%s>: Side door opened.\n", __func__);
+                } else {
+                    Logger(MLLogInfo, "-- <%s>: Side door closed.\n", __func__);
+                }
+            }
+            gSideDoorState = sideDoorState;
             
             // check raster
-            gIsRaster = (inStates[MLInRaster]==MLHigh);
-            if (gIsRaster) {
-                if (doorState==Door_Moving) {
-                    DWORD outbits = GetOutbits(0);
-                    if(((outbits>>MLOutDoorClose)&0x01)==MLLow) {
-                        // open door
-                        usleep(200*1000);
-                        SetBitState(MLOutDoorOpen, MLLow);
-                    }
-                }
-                if (gIsTesting) {
-                    Logger(MLLogWarning, "-- <%s>: Grating alarm.\n", __func__);
+            bool rasterBlocked = (inStates[MLInRaster]==MLHigh);
+            if (gIsRasterBlocked != rasterBlocked) {
+                if(rasterBlocked) {
+                    Logger(MLLogWarning, "-- <%s>: Alarm: Grating is blocked.\n", __func__);
+                } else {
+                    Logger(MLLogInfo, "-- <%s>: Grating is unblocked.\n", __func__);
                 }
             }
+            gIsRasterBlocked = rasterBlocked;
             
             // check Emg-Stop
             if (inStates[MLInEmgStop] == MLHigh) {
@@ -2996,7 +3020,7 @@ int CheckSensor() {
                     gIsTesting = false;
                 }
                 
-                if (doorState==Door_Opened) {
+                if (gAutoDoorState==Door_Opened) {
                     pthread_t thrd;
                     pthread_create(&thrd, NULL, (void*)DoorClose, NULL);
                 } else {
@@ -3282,7 +3306,7 @@ void DebugLaserCalibrator(int testCount) {
     
     AxisParam param = gAxisPrm[9];
     
-    rtn |= smc_write_sevon_pin(gHandle, 9, 0);
+    SetAxisEnableStateInternal(9, true);
     sleep(1);
     rtn |= smc_set_profile_unit(gHandle, 9, param.startSpeed*param.ppratio, param.runSpeed*param.ppratio, param.accTime, param.accTime, param.stopSpeed);
     rtn |= smc_set_s_profile(gHandle, 9,0,0);
@@ -3528,7 +3552,7 @@ bool MoveAxisDistanceAbsolute(int axis, double distance, bool blocked) {
     assert(axis >= 0);
     
     if (gHandle != -1) {
-        smc_write_sevon_pin(gHandle, axis, 0);
+        SetAxisEnableStateInternal(axis, true);
         AxisParam param = gAxisPrm[axis];
         rtn |= smc_set_pulse_outmode(gHandle, axis, MLPluseOutMode);
         rtn |= smc_set_equiv(gHandle, axis, param.equiv);
@@ -3960,7 +3984,7 @@ void DebugIlluminanceMeasure(int testCount) {
                 
                 AxisParam param = gAxisPrm[MLAxisLaser];
                 
-                rtn |= smc_write_sevon_pin(gHandle, MLAxisLaser, 0);
+                SetAxisEnableStateInternal(MLAxisLaser, true);
                 sleep(1);
                 rtn |= smc_set_profile_unit(gHandle, MLAxisLaser, param.startSpeed*param.ppratio, param.runSpeed*param.ppratio, param.accTime, param.accTime, param.stopSpeed);
                 rtn |= smc_set_s_profile(gHandle, MLAxisLaser,0,0);
@@ -3974,7 +3998,7 @@ void DebugIlluminanceMeasure(int testCount) {
                 SetBitState(MLOutLaserPower, MLHigh);
                 SetBitState(MLOutSpotPower, MLHigh);
                 DoorClose();
-                while (doorState!=Door_Closed) { usleep(500000); }
+                while (gAutoDoorState!=Door_Closed) { usleep(500000); }
                 
                 // back to orignal position.
                 if (!bCalibrated) {
@@ -4077,7 +4101,7 @@ double GetLuxmeter(string portName) {
         
         // Close auto-door
         DoorClose();
-        if (doorState!=Door_Closed) {
+        if (gAutoDoorState!=Door_Closed) {
             return measValue;
         }
         
@@ -4184,7 +4208,7 @@ bool LuxMeterON(string portName) {
             SetBitState(MLOutSpotPower, MLHigh);
             
             DoorClose();
-            if (doorState!=Door_Closed) {
+            if (gAutoDoorState!=Door_Closed) {
                 return -1;
             }
             
@@ -4252,7 +4276,7 @@ double IlluminanceMeasure(string portName, double offset, int timeout) {
 
             AxisParam param = gAxisPrm[9];
 
-            rtn |= smc_write_sevon_pin(gHandle, 9, 0);
+            SetAxisEnableStateInternal(9, true);
             sleep(1);
             rtn |= smc_set_profile_unit(gHandle, 9, param.startSpeed*param.ppratio, param.runSpeed*param.ppratio, param.accTime, param.accTime, param.stopSpeed);
             rtn |= smc_set_s_profile(gHandle, 9,0,0);
@@ -4264,7 +4288,7 @@ double IlluminanceMeasure(string portName, double offset, int timeout) {
             SetBitState(MLOutSpotPower, MLHigh);
             
             DoorClose();
-            if (doorState!=Door_Closed) { return -1; }
+            if (gAutoDoorState!=Door_Closed) { return -1; }
             
             // back to orignal position.
             if (!bCalibrated) {

@@ -369,7 +369,7 @@ static int CheckDeviceName(const char *device_array[], int array_size, const cha
     return error_code;
 }
 
-void LoadDefaultProfile() {
+void LoadDefaultProfile(void) {
     SetIniFileName(MLConfigFileName);
 //    double startSpeed = GetDoubleValue("axis_0", "start_speed");
 }
@@ -483,7 +483,7 @@ bool NearlyEqual(double value1, double value2)
     return fabs(value1 - value2) < 0.5;
 }
 
-void CheckAllAxisState() {
+void CheckAllAxisState(void) {
     int state[12];
     for(int axis=1; axis<=gAxisNum; axis++) {
         state[axis-1] = smc_check_done(gHandle, axis);
@@ -1032,7 +1032,7 @@ void InitRegister(void) {
     smc_set_persistent_reg_byte(0, ControllerInitializedFlagByte, 1, &initialized);
 }
 
-void CheckRegister() {
+void CheckRegister(void) {
     char initliazed = '\0';
     smc_get_persistent_reg_byte(0, ControllerInitializedFlagByte, 1, &initliazed);
     if(initliazed=='\0') {  // 寄存器数据未被设置
@@ -1040,7 +1040,7 @@ void CheckRegister() {
     }
 }
 
-void InitAxesAvailableStates() {
+void InitAxesAvailableStates(void) {
     for(int axis=0; axis<=gAxisNum; axis++) {
         char disableState = 0;
         smc_get_persistent_reg_byte(gHandle, DisabledAxisStartIndex+axis, 1, &disableState);
@@ -2077,7 +2077,7 @@ void ClearAxisErrorCode(int axis){
     memset(errmsg, 0, 256);
 }
 
-void ClearBusErrorCode() {
+void ClearBusErrorCode(void) {
     for(int axis=MLAxisRotation; axis<gAxisNum; axis++) {
         ClearAxisErrorCode(axis);
     }
@@ -2087,7 +2087,7 @@ void ClearBusErrorCode() {
     memset(errmsg, 0, 256);
 }
 
-void TResetAllAxis() {
+void TResetAllAxis(void) {
     isActiveFinished = false;
     SetBitState(MLOutCylinderHome, 0);
     SetBitState(MLOutCylinderShop, 1);
@@ -2605,7 +2605,7 @@ void AxisStop(int axis) {
     }
 }
 
-void TAllAxisStop() {
+void TAllAxisStop(void) {
     isNeedStop = true;
     isNeedEmgStop = true;
     for (int axis = 0; axis < gAxisNum; axis++) {
@@ -2785,7 +2785,7 @@ double GetIlluminanceValue(int timeout) {
     return lv;
 }
 
-double MLGetIlluminanceValueNT() {
+double MLGetIlluminanceValueNT(void) {
     float lv = 0;
     float x = 0;
     float y = 0;
@@ -3073,7 +3073,7 @@ bool CheckStopSignal() {
     return gIsStopTest;
 }
 
-void CheckDoor(){
+void CheckDoor(void){
     if (gIsOpenDoor) {
         SetBitState(MLOutDoorOpen, MLLow);
     }
@@ -3212,7 +3212,7 @@ double LaserCalibrator(double offset) {
     int times = 0;
     double height1, height2;
     double diff = -1;
-    int direct = 1;
+    //int direct = 1;
     double off = fabs(offset);
     
     SetBitState(MLOutLaserPower,MLLow);
@@ -3225,7 +3225,7 @@ double LaserCalibrator(double offset) {
     double Myencoder_value=0;
     
     if (gHandle != -1) {
-        AxisParam param = gAxisPrm[MLAxisLaser];
+        //AxisParam param = gAxisPrm[MLAxisLaser];
         
         if (!ConnectDLRS1A(laserPortName)) {
             Logger(MLLogInfo, "<%s>: Start laser calibrate.\n", __func__);
@@ -4387,8 +4387,6 @@ void AddDUTTypeAndName(int type, string name) {
         AxisParam param4 = gAxisPrm[4];
         AxisParam param5 = gAxisPrm[5];
         AxisParam param6 = gAxisPrm[6];
-        AxisParam param7 = gAxisPrm[7];
-        AxisParam param8 = gAxisPrm[8];
         AxisParam param11 = gAxisPrm[11];
         AxisParam param12 = gAxisPrm[12];
 

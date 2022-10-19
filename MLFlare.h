@@ -710,18 +710,6 @@ double MLGetIlluminanceValue(void);
 //Connect Illuminometer port
 bool MLConnectIlluminometer(string portName);
 
-//Connect XJC608T Port
-int MLConnectXJCPort(const char* portName);
-
-//Read XJC608T Value
-double MLReadXJCExisting(int fd,char *str);
-
-//Disconnect XJC608T Port
-void MLDisconnectXJCPort(int fd);
-
-// Zero XJC608T value
-void MLZeroXJCValue(int fd);
-
 //Debug Method
 void DebugManyAxisMovePAndN(int *axises, int axisCount,int testCount);
 void DebugLaserCalibrator(int testCount);

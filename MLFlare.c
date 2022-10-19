@@ -17,7 +17,6 @@
 #include "DLRS1A.h"
 #include "MLExpection.h"
 #include "JKCL200A.h"
-#include "XJC608T.h"
 #include "SCA126T.h"
 
 #include <stdlib.h>
@@ -29,11 +28,10 @@
 #include <limits.h>
 #include <pthread.h>
 #include <math.h>
-#include <unistd.h>
 #include <sys/timeb.h>
 #include <stdio.h>
 #include <time.h>
-#include <dirent.h>
+#include <dirent.h>     // DIR
 // Motion API Handle
 typedef int MLMotionHandle;
 
@@ -534,7 +532,6 @@ bool CheckAxisParameters(MLAxis axis, int mode)
         rtn = smc_get_profile_unit(gHandle, axis, &checkStartSpeed, &checkTargetSpeed, &checkAccTime, &checkDecTime, &checkStopSpeed);
     } else {
         rtn = smc_get_home_profile_unit(gHandle, axis, &checkStartSpeed, &checkTargetSpeed, &checkAccTime, &checkDecTime);
-
     }
 
     if(rtn==0) {
@@ -1091,7 +1088,7 @@ bool Connect(char *ip) {
             smc_get_card_soft_version(gHandle, &fwType, &fwVersion);
             smc_get_card_lib_version(&libVersion);
 //            smc_get_total_axes(gHandle, &axisCount);
-            Logger(MLLogInfo, "-- <CardNum> = %d, <CardTypeList> = %ld, <CardIDList> = %d\n", cardNum, cardTypeList, cardIdList);
+            Logger(MLLogInfo, "-- <CardNum> = %d, <CardTypeList> = 0x%x, <CardIDList> = 0x%x\n", cardNum, cardTypeList, cardIdList);
             Logger(MLLogInfo, "-- <HardwareVersion> = %ld\n", hwVersion);
             Logger(MLLogInfo, "-- <FirewareType> = %ld\n", fwType);
             Logger(MLLogInfo, "-- <FirewareVersion> = %ld\n", fwVersion);
@@ -2000,7 +1997,7 @@ void AxisGoHome(int axis, bool blocked) {
                         usleep(100000);
                     }
                 } else {
-                    Logger(MLLogInfo, "<%s>: Axis %d go home using block mode\n", __func__, axis);
+                    Logger(MLLogInfo, "<%s>: Axis %d go home in unblock mode\n", __func__, axis);
                 }
             } else {
                 Logger(MLLogError, "<%s>: Axis %d fail to moving at home mode, rtn: {%d}.\n", __func__, axis, rtn);
@@ -2164,9 +2161,9 @@ void TAllAxisGoHome() {
 //        Logger(MLLogInfo, "<%s>: Stop button pressed when light axis go home, at call `JMoveAxisWithBlock`\n", __func__);
 //        return;
 //    }
-    Logger(MLLogInfo, "4\n");
     CheckAllAxisState();
     if (isNeedEmgStop) { Logger(MLLogInfo, "<%s>: Emg stop.\n", __func__); return; }
+    Logger(MLLogInfo, "Axes {%d} going home...\n", MLAxisLifter);
     AxisGoHome(MLAxisLifter, true); // wait success to go home.
 
     if (isNeedStop) {
@@ -3120,33 +3117,6 @@ void AdjustAxisPosistion(int direction, int step) {
     
 }
 
-int MLConnectXJCPort(const char* portName) {
-    
-    return ConnectXJCPort(portName);
-}
-
-double MLReadXJCExisting(int fd,char *str){
-    int count = 0;
-    double value = 0;
-    
-    do {
-        value = ReadXJCExisting(fd,"@");
-        
-        if (value != -997 && value != -998) {
-            break;
-        }
-    } while (count < 1);
-    
-    return value;
-}
-
-void MLDisconnectXJCPort(int fd){
-    DisconnectXJCPort(fd);
-}
-
-void MLZeroXJCValue(int fd) {
-    ZeroXJC(fd);
-}
 
 void ConfigLaserPortName(string portName) {
     assert(portName != NULL);

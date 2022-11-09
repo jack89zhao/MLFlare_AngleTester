@@ -1085,7 +1085,8 @@ bool Connect(char *ip) {
     
     if (flag) {
         memset(errmsg, 0, 256);
-        if (0 == smc_board_init(0, Ethernet, ip, 0)) {
+        int ret = smc_board_init(0, Ethernet, ip, 0);
+        if (ret==0) {
             gHandle = 0;
             WORD cardNum;
             DWORD cardTypeList;
@@ -1142,8 +1143,8 @@ bool Connect(char *ip) {
             
             Logger(MLLogInfo, "<%s>:Successfully connect to machine controller.\n", __func__);
         } else {
-            Logger(MLLogError, "<%s>: Fail to connect controller.\n", __func__);
-            sprintf(errmsg, "Fail to connect controller.\n");
+            Logger(MLLogError, "<%s>: Fail to connect controller.(eCode: %d)\n", __func__, ret);
+            sprintf(errmsg, "Fail to connect controller.(eCode: %d)\n" ,ret);
             flag = false;
         }
     }
@@ -2960,7 +2961,7 @@ int CheckSensor() {
             
             // check side door
             DoorState sideDoorState;
-            if( inStates[MLInSideDoorOpened]==MLHigh ) {
+            if( inStates[MLInSideDoorOpened]==MLLow ) {
                 sideDoorState = Door_Closed;
             } else {
                 sideDoorState = Door_Opened;

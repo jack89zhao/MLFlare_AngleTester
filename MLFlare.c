@@ -164,7 +164,7 @@ static double stopSpeedDef[] =  {100, 10, 2, 3, 5, 5,  2, 5,  5,  1, 40,  1,  1,
 static double homeSpeedDef[] =  {100, 20, 3, 5, 5, 15, 8, 15, 15, 5, 120, 10, 10, 1000, 1000, 1000};
 static double accTImeDef[] =    {0.2, 1,  1, 1, 1, 1,  1, 1,  1,  1, 3,   1,  1,  0.1,  0.1,  0.1};
 static double ppRatioDef[] =    {0,  100, 2500, 2500, 15000, 1000, 1000, 1000, 1000, 40000, 800, 2000, 2000, 100, 100, 100};
-static int homeModes[] = {27, 27, 27, 27, 27, 27, 30, 30, 30, 30};
+static int homeModes[] = {27, 27, 27, 27, 27, 27, 27, 27, 30, 30};
 static int homeDirDef = 1;
 static int homeLevelDef = 0;
 static bool hasInitialzed = false;
@@ -188,7 +188,7 @@ void ResetAllAxis(bool pthread);
 // ========================= private method ============================
 
 char* GetLibraryVersion(void) {
-    return "v2.1.1";
+    return "v2.1.2";
 }
 
 static char** ListUSBDeviceNames(int *count)

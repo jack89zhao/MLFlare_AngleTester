@@ -188,7 +188,7 @@ void ResetAllAxis(bool pthread);
 // ========================= private method ============================
 
 char* GetLibraryVersion(void) {
-    return "v2.1.0";
+    return "v2.1.1";
 }
 
 static char** ListUSBDeviceNames(int *count)
@@ -495,7 +495,9 @@ bool ChangeAxisIOBrake(int axis, bool brake) {
     int brakeState = brake ? 1 : 0;
     if(ap.brakeIO!=-1 && GetOutBitState(ap.brakeIO)!=brakeState) {
         Logger(MLLogInfo, "%s axis-%d brake.", brake?"Hold":"Release", axis);
+        if(!brake) usleep(500*1000); // 松刹车前先delay500毫秒，确保使能已经起作用
         SetBitState(ap.brakeIO, brakeState);
+        if(!brake) usleep(500*1000); // 松刹车后再delay500毫秒之后允许运动
         return GetOutBitState(ap.brakeIO)==brakeState;
     }
     return true;
@@ -512,7 +514,7 @@ bool SetAxisEnableStateInternal(int axis, bool enable) {
     int targetState = enable ? Servo_ON : Servo_OFF;
     int currentState = smc_read_sevon_pin(gHandle, axis);
     if(currentState!=targetState) Logger(MLLogInfo, "<%s> %s Axis-%d", __func__, enable?"enable":"disable", axis);
-    if(enable) ChangeAxisIOBrake(axis, false); // 先松刹车再上使能
+    if(!enable) ChangeAxisIOBrake(axis, true); // 要断使能先刹车
     if(currentState != targetState) {
         short ret = smc_write_sevon_pin(gHandle, axis, targetState);
         if(ret!=0) {
@@ -521,7 +523,7 @@ bool SetAxisEnableStateInternal(int axis, bool enable) {
             usleep(500*1000);
         }
     }
-    if(!enable) ChangeAxisIOBrake(axis, true); // 先断使能再刹车
+    if(enable) ChangeAxisIOBrake(axis, false); // 使能后再松刹车
     return GetAxisEnableState(axis)==enable;
 }
 
